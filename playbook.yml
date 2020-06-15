@@ -1,0 +1,195 @@
+---
+- name: Prerequisites
+  hosts: rpi
+  remote_user: ubuntu
+  become: true
+  tasks:
+    - name: Set timezone to Europe/Paris
+      timezone:
+        name: Europe/Paris
+
+    - name: Add InfluxData Apt key
+      apt_key:
+        url: https://repos.influxdata.com/influxdb.key
+        state: present
+
+    - name: Add stable InfluxData Apt repository
+      apt_repository:
+        # repo: "deb https://repos.influxdata.com/{{ ansible_facts['distribution']|lower }} {{ ansible_facts['distribution_release'] }} stable"
+        repo: "deb https://repos.influxdata.com/{{ ansible_facts['distribution']|lower }} bionic stable"
+        state: present
+
+    - name: Add Grafana Apt key
+      apt_key:
+        url: https://packages.grafana.com/gpg.key
+        state: present
+
+    - name: Add Grafana stable Apt repository
+      apt_repository:
+        repo: deb https://packages.grafana.com/oss/deb stable main
+        state: present
+
+- name: InfluxDB
+  hosts: rpi
+  remote_user: ubuntu
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install InfluxDB
+      apt:
+        update_cache: yes
+        pkg: influxdb
+        state: latest
+
+    - name: Service started and enabled
+      service:
+        name: influxdb
+        enabled: yes
+        state: started
+
+    - name: Wait influxdb service to be ready
+      wait_for:
+        timeout: 20 
+
+    - name: Check database presence
+      uri:
+        url: "http://127.0.0.1:8086/query"
+        method: POST
+        body: 'q=SHOW DATABASES'
+      register: response
+
+    - name: Create database
+      uri:
+        url: "http://127.0.0.1:8086/query"
+        method: POST
+        body: 'q=CREATE DATABASE "{{ influxdb_dbname }}"'
+      register: response
+      changed_when: response.status == 200
+      when: "influxdb_dbname not in response.json | json_query('results[0].series[0].values[*][0]')"
+
+- name: Telegraf
+  hosts: rpi
+  remote_user: ubuntu
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install Telegraf
+      apt:
+        update_cache: yes
+        pkg: telegraf
+        state: latest
+
+    - name: Service started and enabled
+      service:
+        name: telegraf
+        enabled: yes
+        state: started
+
+    - name: Copy the telegraf configuration file
+      copy:
+        src: "files/telegraf.conf"
+        dest: "/etc/telegraf/telegraf.conf"
+        mode: 0644 
+        force: yes
+      notify: restart telegraf
+
+    - name: Copy covid19 data CSV file
+      copy:
+        src: "files/donnees-hospitalieres-covid19-2020-06-11-19h00.csv"
+        dest: "/tmp/covid19.csv"
+        mode: 0644 
+        force: yes
+      notify: restart telegraf      
+
+  handlers:
+    - name: restart telegraf
+      service:
+        name: telegraf
+        state: restarted
+
+- name: Grafana
+  hosts: rpi
+  remote_user: ubuntu
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install Grafana
+      apt:
+        force_apt_get: yes
+        update_cache: yes
+        pkg: grafana
+
+    - name: Grafana started and enabled
+      service:
+        name: grafana-server
+        enabled: yes
+        state: started
+
+    - name: Wait grafana-server service to be ready
+      wait_for:
+        timeout: 15 
+
+    - name: Check datasource presence
+      uri:
+        url: "http://127.0.0.1:3000/api/datasources"
+        method: GET
+        force_basic_auth: true
+        user: admin
+        password: admin
+      register: response
+
+    - name: Create datasource
+      uri:
+        url: "http://127.0.0.1:3000/api/datasources"
+        method: POST
+        force_basic_auth: true
+        user: admin
+        password: admin
+        body_format: form-urlencoded
+        body:
+          name: "{{ grafana_datasource }}"
+          type: "influxdb"
+          url: "http://127.0.0.1:8086"
+          access: "proxy"
+          basicAuth: "false"
+          database: "{{ influxdb_dbname }}"
+      when:
+        - "grafana_datasource not in response.json | json_query('[*].name')"
+
+    - name: Transfer dashboard provisioning configuration file
+      template:
+        dest: "/etc/grafana/provisioning/dashboards/dashboards.yml"
+        src: "dashboards.yml.j2"
+        mode: 0644 
+        force: yes
+      notify: restart grafana
+
+    - name: Create a dashboard directory
+      file:
+        path: "/var/lib/grafana/dashboards"
+        state: directory
+        mode: '0755'
+
+    - name: Transfer dashboard JSON files
+      template:
+        dest: "/var/lib/grafana/dashboards/{{ item }}"
+        src: "files/{{ item }}"
+        mode: 0644 
+        force: yes
+      loop: "{{ grafana_dashboards }}"
+      notify: restart grafana
+
+    - name: Set the correct datasource name in the dashboard
+      replace:
+        dest: "/var/lib/grafana/dashboards/{{ item }}"
+        regexp: '"(?:\${)?DS_[A-Z0-9_-]+(?:})?"'
+        replace: '"{{ grafana_datasource }}"'
+      changed_when: false
+      loop: "{{ grafana_dashboards }}"
+      notify: restart grafana
+
+  handlers:
+    - name: restart grafana
+      service:
+        name: grafana-server
+        state: restarted

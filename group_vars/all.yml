@@ -1,0 +1,6 @@
+---
+influxdb_dbname: covid19
+
+grafana_datasource: "{{ influxdb_dbname }}"
+grafana_dashboards:
+  - "dashboard-covid19-FR.json"
