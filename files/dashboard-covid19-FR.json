@@ -683,7 +683,7 @@
     "list": []
   },
   "time": {
-    "from": "now-90d",
+    "from": "2020-03-16T23:00:00.000Z",
     "to": "now"
   },
   "timepicker": {
@@ -702,5 +702,5 @@
   "timezone": "",
   "title": "Covid19 France - Hospital statistics",
   "uid": "SQfyoqqZz",
-  "version": 10
+  "version": 2
 }
