@@ -95,10 +95,12 @@
 
     - name: Copy covid19 data CSV file
       copy:
-        src: "files/donnees-hospitalieres-covid19-2020-06-11-19h00.csv"
+        src: "{{ item}}"
         dest: "/tmp/covid19.csv"
         mode: 0644 
         force: yes
+      with_fileglob:
+        - "files/donnees-hospitalieres-covid19-*.csv"
       notify: restart telegraf      
 
   handlers:
