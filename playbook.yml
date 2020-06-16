@@ -39,7 +39,6 @@
       apt:
         update_cache: yes
         pkg: influxdb
-        state: latest
 
     - name: Service started and enabled
       service:
@@ -77,7 +76,6 @@
       apt:
         update_cache: yes
         pkg: telegraf
-        state: latest
 
     - name: Service started and enabled
       service:
@@ -117,7 +115,6 @@
   tasks:
     - name: Install Grafana
       apt:
-        force_apt_get: yes
         update_cache: yes
         pkg: grafana
 
